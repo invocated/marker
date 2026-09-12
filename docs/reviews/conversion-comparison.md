@@ -12,7 +12,7 @@ The final table repair commit is `f25c328`. A source comparison against the test
 
 The public table source and seven official rules are pinned as described in [the baseline report](marker-baseline.md). The multicolumn control is the repository's `tests/data/olmocr_bench/pdfs/multi_column_page1.pdf`; its SHA-256 is `3ab9f78fb3cd0b0f869a919b1157d44ce1073c51852bff4d11068ce1769cd491`. The rasterized synthetic source has SHA-256 `39924615b93ee3db2596acc3e3b605050ad420c7cc3207c81554282c96251b74`. It contains an Inventory heading and a four-row, three-column table with twelve known cells. It has no embedded text. This synthetic page does not substitute for real scanned-document coverage.
 
-Settings included balanced mode, page zero, one PDF text worker, image extraction enabled, diagnostics requested, and optional LLM processing disabled. The original baseline does not support diagnostic collection. Both versions used model `datalab-to/surya-ocr-2` revision `3b3d4cdf88d6928b0acdc75181b13206ea67c4a3`, vLLM 0.20.1, bfloat16, maximum model length 18000, 8192 batched tokens, 32 sequences, MTP 2 and GPU memory fraction 0.80. The owned server's image ID is `sha256:aef4ebc906574fa2e6e52079937b7d3a8735e218f6353b58667b215e4257a34b`. Its cold startup took 266.85 seconds. Container identity and launch arguments were verified before conversion; cleanup remains a separate required check while the server supports worker integration.
+Settings included balanced mode, page zero, one PDF text worker, image extraction enabled, diagnostics requested, and optional LLM processing disabled. The original baseline does not support diagnostic collection. Both versions used model `datalab-to/surya-ocr-2` revision `3b3d4cdf88d6928b0acdc75181b13206ea67c4a3`, vLLM 0.20.1, bfloat16, maximum model length 18000, 8192 batched tokens, 32 sequences, MTP 2 and GPU memory fraction 0.80. The owned server's image ID is `sha256:aef4ebc906574fa2e6e52079937b7d3a8735e218f6353b58667b215e4257a34b`. Its cold startup took 266.85 seconds. Container identity and launch arguments were verified before conversion. The cleanup checks below confirm that the owned server stopped after worker integration.
 
 ## Output findings
 
@@ -57,4 +57,45 @@ An isolated archive of `f25c328` also passed the seven original fixture-independ
 
 These tests cover configuration, HTML cleanup, missing-key handling and image-provider behavior. They do not add converter or model-quality coverage.
 
-The original private fixture suite remains unavailable. Its table processor and table merge tests require private fixtures and model-backed document construction. Real merged-cell, cross-page table, form and contents-page conversions remain unverified. So do the full operating-system/mode matrix, real scanned-document completeness, optional LLM rewrite behavior with a live service, and the full public benchmark. The owned server's cleanup must be recorded after the remaining integration work.
+The original private fixture suite remains unavailable. Its table processor and table merge tests require private fixtures and model-backed document construction. Real merged-cell, cross-page table, form and contents-page conversions remain unverified. So do the full operating-system/mode matrix, real scanned-document completeness, optional LLM rewrite behavior with a live service, and the full public benchmark.
+
+## Actual batch worker verification
+
+The final worker ran through `python -m marker.scripts.validated_batch` with separate temporary outputs on Windows Python 3.13.5 and Linux Python 3.11.13. Both used the existing local model checkpoints and owned vLLM server. No model downloads or remote inference were needed. The tested worker file hashes were:
+
+- `marker/batch/runtime.py`: `ca7ab70724ad687a2dae89af63df65e735026cd2109c3be4415e739fd7fee9a0`
+- `marker/batch/validation.py`: `f6f4ca7583c214008d46f8a0cbea371c05c479b63e0314b2a0afaf88c0d9f588`
+- `marker/scripts/validated_batch.py`: `8194fa3b3c878bce9edee576eea47df4dfe22790dc8651cdb2338c777fa704eb`
+
+Each invocation used the public multicolumn source, balanced mode and page zero unless specified below. The source, configuration and code identity stayed unchanged between each platform's pass, skip and edited-output checks. For the edited-output test, the reviewer appended a line to the newly generated temporary Markdown, keeping a copy of its original bytes. The worker produced a new successful attempt and preserved the altered prior attempt.
+
+| Platform and case | Result | Whole command seconds |
+| --- | --- | --- |
+| Windows balanced first invocation | pass | 45.36 |
+| Windows identical second invocation | skipped after validation | 14.25 |
+| Windows edited prior output | new conversion, pass | 36.94 |
+| Linux balanced first invocation | pass | 36.63 |
+| Linux identical second invocation | skipped after validation | 9.59 |
+| Linux edited prior output | new conversion, pass | 22.35 |
+| Linux public table page | unknown, table requires review | 25.17 |
+| Linux fast mode with OCR disabled | pass | 29.29 |
+
+The public table page retained its review requirement because the OCR table lacks sufficient completeness evidence. The worker did not turn successful conversion into a validated pass. The multicolumn controls contain no tables, so their pass does not establish complete table extraction. The fast-mode check proves this selected embedded-text page can use the documented local path; it does not establish fast-mode quality across documents.
+
+Whole-command timing includes identity checks, file hashing, model snapshots, subprocess startup and output validation. It differs from converter-only timing above. The first pass for a new code identity can start dedicated lightweight services. Single-page timings on shared hardware cannot establish batch throughput. The Windows edited-output check overlapped part of the Linux verification sequence.
+
+The layout checkpoint snapshot occupies 142,008,126 bytes; the OCR-error snapshot occupies 274,584,088 bytes. Together they add 416,592,214 bytes (about 397.3 MiB) per distinct snapshot parent in the output root. The worker includes the ordering files in the layout snapshot even when balanced mode does not use them. Code/configuration changes can create additional snapshot parents, so these costs are not a one-time global cache estimate. The large vLLM weights remain in the existing shared cache and are not included in these counts.
+
+Actual integration exposed and corrected three runtime issues before the final runs: a custom checkpoint conflicted with Surya's default lightweight-service identity; Surya's spawned server reported the default checkpoint name on subsequent attachment; and Windows' virtual-environment launcher delegated to a base-Python child that owned the socket. Final tests exercised reuse after these corrections. The Windows witness checks the exact launcher/child relationship, executable paths and checkpoint arguments.
+
+The final Linux suite passed 162 tests in 2.72 seconds: 155 focused tests plus the seven original fixture-independent tests. The command was:
+
+```sh
+/tmp/marker-baseline-20260912/repo/.venv/bin/python -m pytest tests/processors/test_heading_consistency.py tests/processors/test_table_diagnostics.py tests/processors/test_table_preservation.py tests/batch/test_validated_batch.py tests/config/test_config.py tests/builders/test_ocr_builder.py tests/services/test_service_init.py::test_llm_no_keys tests/providers/test_image_provider.py::test_image_provider -q -p no:cacheprovider --tb=short
+```
+
+## Test service cleanup
+
+The reviewer verified the exact owned vLLM container ID before stopping it. The guardian recorded stop exit code 0; a subsequent Docker inspection found no such container. Logs and ownership records were retained. This exercised the guardian's actual stop path after its prior code-only review.
+
+The reviewer also stopped the four Linux and three Windows worker-specific lightweight services, including the three Windows launcher children. Before stopping them, the reviewer checked their recorded PIDs, module names and exact checkpoint arguments. Afterward their ports had no listeners, and only their matching service records were removed. The pre-existing OCR-error process remained alive on its original port. The five pre-existing RAGFlow containers remained running, with their health checks unchanged. No test conversion or owned inference process remains active.
