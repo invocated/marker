@@ -265,6 +265,23 @@ def main():
             record["vendored_checker_sha256"] = digest(repo / "tests/converters/test_olmocr_bench.py")
         else:
             checks = [dict(id=r["id"], result=load_single_test(r).run(text)) for r in rules]
+        if args.case == "table":
+            tables = parse_markdown_tables(text) + parse_html_tables(text)
+            shapes = [[max((r for r, c in t.cell_text), default=-1) + 1,
+                       max((c for r, c in t.cell_text), default=-1) + 1] for t in tables]
+            record["visual_expectations"] = {
+                "source_sha256": TABLE_HASH,
+                "basis": "Human-visible source page inspection, separate from official rules",
+                "expected_shapes_in_order": [[5, 7], [6, 5]],
+                "first_header": ["Variable", "Mean", "JS", "BO", "IBE", "MI", "S.D."],
+                "scope": "Dimensions and first header only, not complete cell correctness",
+            }
+            expected_header = record["visual_expectations"]["first_header"]
+            header = [tables[0].cell_text.get((0, c), "").strip() for c in range(7)] if tables else []
+            record["supplementary_checks"] = [
+                dict(id="public_table_shapes", result=[shapes == [[5, 7], [6, 5]], f"Observed {shapes}"]),
+                dict(id="public_first_table_header", result=[header == expected_header, f"Observed {header}"]),
+            ]
         if args.case == "synthetic":
             tables = parse_markdown_tables(text) + parse_html_tables(text)
             expected = {(r, c): value for r, row in enumerate(EXPECTED) for c, value in enumerate(row)}
@@ -286,7 +303,7 @@ def main():
         if models:
             shutdown_models(models)
         write_json(out / "record.json", record)
-    return 0 if record["status"] == "converted" and all(x["result"][0] for x in record["checks"]) else 1
+    return 0 if record["status"] == "converted" and all(x["result"][0] for x in record["checks"] + record.get("supplementary_checks", [])) else 1
 
 
 if __name__ == "__main__":

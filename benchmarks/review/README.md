@@ -24,7 +24,7 @@ Outputs include source-page PNG, raw Markdown, metadata, per-table HTML/path sna
 
 RSS measures the parent and its operating-system children at 100 ms intervals. The process-tree sum can count shared pages more than once and excludes Docker processes, GPU memory and external servers. Recognition counts cover calls to Marker’s recognition predictor, not layout calls, HTTP requests or backend retries. Elapsed time includes cold startup. Instrumentation runs on both versions; these measurements are not exclusive-GPU throughput or exact peak memory.
 
-An exit status of 1 can mean a recorded conversion error or a failed quality check. Consult `record.json`. The public baseline already fails one of its seven table rules. Do not suppress that result, treat missing diagnostics as a completeness pass, or infer whole-library quality from these controls.
+An exit status of 1 can mean a recorded conversion error or a failed quality check. Consult `record.json`. The public baseline already fails one of its seven table rules. Supplementary visual checks require Table 1 to have five rows and seven columns and Table 2 to have six rows and five columns, counting headers. The first table header must preserve the separate IBE and MI columns. These checks appear under `supplementary_checks` and do not change the seven-rule official denominator. They also affect the exit status. Do not suppress existing failures, treat missing diagnostics as a completeness pass, or infer whole-library quality from these controls.
 
 ## Share one owned local test server
 
