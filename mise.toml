@@ -1,0 +1,3 @@
+[tools]
+"github:dolthub/dolt" = "2.3.3"
+"github:gastownhall/beads" = "1.2.2"
