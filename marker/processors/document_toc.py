@@ -16,7 +16,8 @@ class DocumentTOCProcessor(BaseProcessor):
     existing level; ignored and empty headings retain their TOC membership.
     Caller-supplied processor lists control when this processor runs.
     """
-    block_types = (BlockTypes.SectionHeader, )
+
+    block_types = (BlockTypes.SectionHeader,)
 
     def __call__(self, document: Document):
         toc = []
@@ -29,13 +30,20 @@ class DocumentTOCProcessor(BaseProcessor):
                         re.compile(r"^h\d+$", re.IGNORECASE)
                     )
                     if len(headings) == 1 and headings[0].name in (
-                        "h1", "h2", "h3", "h4", "h5", "h6"
+                        "h1",
+                        "h2",
+                        "h3",
+                        "h4",
+                        "h5",
+                        "h6",
                     ):
                         block.heading_level = int(headings[0].name[1])
-                toc.append({
-                    "title": block.raw_text(document).strip(),
-                    "heading_level": block.heading_level,
-                    "page_id": page.page_id,
-                    "polygon": block.polygon.polygon
-                })
+                toc.append(
+                    {
+                        "title": block.raw_text(document).strip(),
+                        "heading_level": block.heading_level,
+                        "page_id": page.page_id,
+                        "polygon": block.polygon.polygon,
+                    }
+                )
         document.table_of_contents = toc

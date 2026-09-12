@@ -6,7 +6,10 @@ import pytest
 from PIL import Image
 
 from marker.processors.table import TableProcessor
-from marker.processors.table_recon import reconstruct_table_html, table_lines_from_pdftext
+from marker.processors.table_recon import (
+    reconstruct_table_html,
+    table_lines_from_pdftext,
+)
 from marker.renderers.markdown import MarkdownRenderer
 from marker.schema.blocks import Form, Table, TableOfContents, Text
 from marker.schema.document import Document
@@ -24,25 +27,48 @@ def lines():
 
 
 def page_data(source):
-    return {"blocks": [{"lines": [
-        {"bbox": [0, y0, 450, y1], "spans": [
-            {"text": text, "bbox": [x0, y0, x1, y1]}
-            for text, x0, x1 in spans
-        ]} for spans, y0, y1 in source
-    ]}]}
+    return {
+        "blocks": [
+            {
+                "lines": [
+                    {
+                        "bbox": [0, y0, 450, y1],
+                        "spans": [
+                            {"text": text, "bbox": [x0, y0, x1, y1]}
+                            for text, x0, x1 in spans
+                        ],
+                    }
+                    for spans, y0, y1 in source
+                ]
+            }
+        ]
+    }
 
 
 def document(source=None, existing_html=None):
-    table = Table(polygon=PolygonBox.from_bbox([0, 0, 450, 100]), page_id=0, block_id=0, html=existing_html)
-    prose = Text(polygon=PolygonBox.from_bbox([0, 110, 450, 130]), page_id=0, block_id=1)
-    page = PageGroup(polygon=PolygonBox.from_bbox([0, 0, 500, 500]), page_id=0,
-                     children=[table, prose], structure=[table.id, prose.id],
-                     pdftext_page=page_data(source) if source is not None else None,
-                     highres_image=Image.new("RGB", (500, 500)))
+    table = Table(
+        polygon=PolygonBox.from_bbox([0, 0, 450, 100]),
+        page_id=0,
+        block_id=0,
+        html=existing_html,
+    )
+    prose = Text(
+        polygon=PolygonBox.from_bbox([0, 110, 450, 130]), page_id=0, block_id=1
+    )
+    page = PageGroup(
+        polygon=PolygonBox.from_bbox([0, 0, 500, 500]),
+        page_id=0,
+        children=[table, prose],
+        structure=[table.id, prose.id],
+        pdftext_page=page_data(source) if source is not None else None,
+        highres_image=Image.new("RGB", (500, 500)),
+    )
     return Document(filepath="synthetic.pdf", pages=[page])
 
 
-@pytest.mark.parametrize("width,reason", [(300, "merge_previous_row"), (60, "merge_previous_row")])
+@pytest.mark.parametrize(
+    "width,reason", [(300, "merge_previous_row"), (60, "merge_previous_row")]
+)
 def test_occurrence_assignments_preserve_existing_output(width, reason):
     source = lines()
     source.insert(2, ([("continuation", 100, 100 + width)], 30, 38))
@@ -87,7 +113,15 @@ def test_leader_exclusion_and_corrupt_reference():
 def test_processor_diagnostics_preserve_decisions(mode, disable_ocr, source):
     original = document(source)
     enabled = deepcopy(original)
-    result = [SimpleNamespace(blocks=[SimpleNamespace(html="<table><tr><td>OCR</td></tr></table>", error=False)])]
+    result = [
+        SimpleNamespace(
+            blocks=[
+                SimpleNamespace(
+                    html="<table><tr><td>OCR</td></tr></table>", error=False
+                )
+            ]
+        )
+    ]
     off_model, on_model = Mock(return_value=result), Mock(return_value=result)
     config = dict(mode=mode, disable_ocr=disable_ocr)
     off = TableProcessor(off_model, config)
@@ -105,8 +139,13 @@ def test_processor_diagnostics_preserve_decisions(mode, disable_ocr, source):
     assert trace["neighbors"][0]["bbox"] == [0, 110, 450, 130]
     assert "chars" not in str(trace)
     renderer = MarkdownRenderer()
-    assert "table_diagnostics" not in renderer.generate_document_metadata(original, None)
-    assert renderer.generate_document_metadata(enabled, None)["table_diagnostics"] == enabled.table_diagnostics
+    assert "table_diagnostics" not in renderer.generate_document_metadata(
+        original, None
+    )
+    assert (
+        renderer.generate_document_metadata(enabled, None)["table_diagnostics"]
+        == enabled.table_diagnostics
+    )
 
 
 @pytest.mark.parametrize("block_cls", [Table, Form, TableOfContents])
@@ -114,8 +153,13 @@ def test_processor_diagnostics_preserve_decisions(mode, disable_ocr, source):
 def test_existing_ocr_html_remains_unknown_and_untouched(block_cls, method):
     doc = document(existing_html="<table><tr><td>Existing</td></tr></table>")
     old = doc.pages[0].children[0]
-    replacement = block_cls(polygon=old.polygon, page_id=0, block_id=0,
-                            html=old.html, text_extraction_method=method)
+    replacement = block_cls(
+        polygon=old.polygon,
+        page_id=0,
+        block_id=0,
+        html=old.html,
+        text_extraction_method=method,
+    )
     doc.pages[0].children[0] = replacement
     doc.pages[0].structure[0] = replacement.id
     model = Mock()
@@ -138,20 +182,28 @@ def test_header_and_symbol_column_provenance():
     assert header["status"] == "emitted"
     assert header["reason"] == "header_center"
     source = [([("Item", 50, 80), ("Count", 100, 130)], 0, 8)] + [
-        ([("\u2611", 0, 10), ("Same", 50, 80), (str(i), 100, 110)], y, y+8)
+        ([("\u2611", 0, 10), ("Same", 50, 80), (str(i), 100, 110)], y, y + 8)
         for i, y in [(1, 20), (2, 40), (3, 60)]
     ]
     trace = {}
     assert reconstruct_table_html(source, trace) == reconstruct_table_html(source)
-    assert [r["column"] for r in trace["spans"] if r["text"] in ("Same", "\u2611")] == [0]*6
+    assert [r["column"] for r in trace["spans"] if r["text"] in ("Same", "\u2611")] == [
+        0
+    ] * 6
     assert [r["row"] for r in trace["spans"] if r["text"] == "Same"] == [0, 1, 2]
 
 
 def test_char_boundary_filter_does_not_expand_region():
     raw = page_data(lines())
-    outside = {"bbox": [470, 20, 490, 28], "spans": [{"chars": [
-        {"char": "X", "bbox": [470, 20, 478, 28]}
-    ], "bbox": [470, 20, 490, 28]}]}
+    outside = {
+        "bbox": [470, 20, 490, 28],
+        "spans": [
+            {
+                "chars": [{"char": "X", "bbox": [470, 20, 478, 28]}],
+                "bbox": [470, 20, 490, 28],
+            }
+        ],
+    }
     raw["blocks"][0]["lines"].append(outside)
     trace = {}
     a = table_lines_from_pdftext(raw, [0, 0, 450, 100], trace)
@@ -171,10 +223,21 @@ def test_numeric_continuation_remains_unresolved_not_a_quality_failure():
 
 def test_rejected_candidate_is_not_final_ocr_provenance():
     doc = document(lines())
-    model = Mock(return_value=[SimpleNamespace(blocks=[SimpleNamespace(
-        html="<table><tr><td>Different OCR text</td></tr></table>", error=False
-    )])])
-    TableProcessor(model, {"collect_table_diagnostics": True, "min_recon_score": 1.1})(doc)
+    model = Mock(
+        return_value=[
+            SimpleNamespace(
+                blocks=[
+                    SimpleNamespace(
+                        html="<table><tr><td>Different OCR text</td></tr></table>",
+                        error=False,
+                    )
+                ]
+            )
+        ]
+    )
+    TableProcessor(model, {"collect_table_diagnostics": True, "min_recon_score": 1.1})(
+        doc
+    )
     trace = doc.table_diagnostics[0]
     assert trace["reconstruction_accepted"] is False
     assert trace["assignment_stage"] == "reconstruction_candidate"

@@ -248,10 +248,16 @@ def _avg_col_width(cut_xs: list) -> float:
     return (sum(widths) / len(widths)) if widths else 100.0
 
 
-def _stitch_band_headers(band_lines, cut_xs, k, records=None, bounds=None, intervals=None):
+def _stitch_band_headers(
+    band_lines, cut_xs, k, records=None, bounds=None, intervals=None
+):
     """Assign each header span to its unique containing column interval;
     stitch top-to-bottom. Returns (names, n_named)."""
-    full = intervals or (list(itertools.pairwise([bounds[0], *cut_xs, bounds[1]])) if bounds else _full_intervals(cut_xs))
+    full = intervals or (
+        list(itertools.pairwise([bounds[0], *cut_xs, bounds[1]]))
+        if bounds
+        else _full_intervals(cut_xs)
+    )
     parts = defaultdict(list)
     for index, (spans, _y0) in sorted(enumerate(band_lines), key=lambda t: t[1][1]):
         for span_index, (t, x0, x1) in enumerate(spans):
@@ -263,8 +269,11 @@ def _stitch_band_headers(band_lines, cut_xs, k, records=None, bounds=None, inter
                 parts[j].append(t)
                 if records is not None:
                     records[index][span_index].update(
-                        status="emitted", section="header", row=0,
-                        column=j, reason="header_center",
+                        status="emitted",
+                        section="header",
+                        row=0,
+                        column=j,
+                        reason="header_center",
                     )
     # Unfilled header columns are left blank rather than "column_N" - a blank
     # <th> reads cleaner than a placeholder label in the output.
@@ -272,13 +281,19 @@ def _stitch_band_headers(band_lines, cut_xs, k, records=None, bounds=None, inter
     return names, sum(1 for j in range(k) if parts.get(j))
 
 
-def _attach_wrapped_lines(lines, first_data_y, grid_y, cut_xs, records=None, bounds=None, intervals=None):
+def _attach_wrapped_lines(
+    lines, first_data_y, grid_y, cut_xs, records=None, bounds=None, intervals=None
+):
     """Merge short mid-table text lines (wrapped cell continuations) into the
     row above, in the aligned text column. Deterministic merge-up (the pre-LLM
     fallback): numeric spans and non-text columns are never attached."""
-    full = intervals or (list(itertools.pairwise([bounds[0], *cut_xs, bounds[1]])) if bounds else _full_intervals(cut_xs))
-    height = median(max(1, y1-y0) for _, y0, y1 in lines)
-    latest = [[y] * (len(cut_xs)+1) for _, y in grid_y]
+    full = intervals or (
+        list(itertools.pairwise([bounds[0], *cut_xs, bounds[1]]))
+        if bounds
+        else _full_intervals(cut_xs)
+    )
+    height = median(max(1, y1 - y0) for _, y0, y1 in lines)
+    latest = [[y] * (len(cut_xs) + 1) for _, y in grid_y]
     wrap_gaps = defaultdict(list)
     k = len(cut_xs) + 1
     col_texty = []
@@ -299,26 +314,35 @@ def _attach_wrapped_lines(lines, first_data_y, grid_y, cut_xs, records=None, bou
             j = containing[0] if len(containing) == 1 else None
             if j is None or not col_texty[j] or _cell_class(t) != "text":
                 if records is not None:
-                    records[index][span_index]["reason"] = "continuation_not_text_column"
+                    records[index][span_index]["reason"] = (
+                        "continuation_not_text_column"
+                    )
                 continue
-            gap = y0-latest[ti][j]
+            gap = y0 - latest[ti][j]
             if gap > 1.5 * height:
                 if records is not None:
                     records[index][span_index]["reason"] = "continuation_gap"
                 continue
-            if ti == len(grid_y)-1 and not any(abs(gap-known) <= height/2 for known in wrap_gaps[j]):
+            if ti == len(grid_y) - 1 and not any(
+                abs(gap - known) <= height / 2 for known in wrap_gaps[j]
+            ):
                 if records is not None:
-                    records[index][span_index]["reason"] = "trailing_text_without_wrap_evidence"
+                    records[index][span_index]["reason"] = (
+                        "trailing_text_without_wrap_evidence"
+                    )
                 continue
-            if ti < len(grid_y)-1:
+            if ti < len(grid_y) - 1:
                 wrap_gaps[j].append(gap)
             latest[ti][j] = y0
             target = grid_y[ti][0]
             target[j] = f"{target[j]} {t}".strip() if target[j] else t
             if records is not None:
                 records[index][span_index].update(
-                    status="emitted", section="body", row=ti,
-                    column=j, reason="merge_previous_row",
+                    status="emitted",
+                    section="body",
+                    row=ti,
+                    column=j,
+                    reason="merge_previous_row",
                 )
 
 
@@ -339,8 +363,11 @@ def _merge_marker_columns(names, grid, records=None):
     j = 0
     while k > 1 and j < k - 1:
         vals = [row[j] for row in grid if row[j].strip()]
-        if (len(vals) >= 2 and all(_SYMBOL_ONLY.match(v.strip()) for v in vals)
-                and (not names or not names[j] or _SYMBOL_ONLY.match(names[j].strip()))):
+        if (
+            len(vals) >= 2
+            and all(_SYMBOL_ONLY.match(v.strip()) for v in vals)
+            and (not names or not names[j] or _SYMBOL_ONLY.match(names[j].strip()))
+        ):
             for row in grid:
                 row[j : j + 2] = [f"{row[j]} {row[j + 1]}".strip()]
             if names:
@@ -420,19 +447,28 @@ def _line_tokens(line: dict, bbox, excluded=None, preserve_placeholders=False):
     out = []
     for text, x0, x1 in tokens:
         text = text.strip()
-        if text and (not _LEADER_ONLY.match(text) or text in ("-", "--")
-                     or (preserve_placeholders and set(text) == {"_"})):
+        if text and (
+            not _LEADER_ONLY.match(text)
+            or text in ("-", "--")
+            or (preserve_placeholders and set(text) == {"_"})
+        ):
             out.append((text, round(x0, 1), round(x1, 1)))
         elif text and excluded is not None:
             line_bbox = line.get("bbox") or [0, 0, 0, 0]
-            excluded.append(dict(
-                text=text, bbox=[x0, line_bbox[1], x1, line_bbox[3]],
-                status="excluded", reason="leader_only",
-            ))
+            excluded.append(
+                dict(
+                    text=text,
+                    bbox=[x0, line_bbox[1], x1, line_bbox[3]],
+                    status="excluded",
+                    reason="leader_only",
+                )
+            )
     return out
 
 
-def table_lines_from_pdftext(pdftext_page: dict, bbox, diagnostics=None, preserve_placeholders=False) -> list:
+def table_lines_from_pdftext(
+    pdftext_page: dict, bbox, diagnostics=None, preserve_placeholders=False
+) -> list:
     """Extract ``[(tokens, y0, y1)]`` lines (tokens = ``[(text, x0, x1)]``) from a
     cached pdftext page, restricted to ``bbox`` (x0, y0, x1, y1, in pdftext/PDF
     points). Tokens are word-level (see _line_tokens). Feeds
@@ -474,24 +510,36 @@ def _merge_same_row_fragments(lines):
         active = [group for group in active if group[2] > y0]
         candidates = []
         for group in active:
-            disjoint = all(x1 <= other0 or other1 <= x0
-                           for _, x0, x1 in spans for _, other0, other1, _ in group[0])
+            disjoint = all(
+                x1 <= other0 or other1 <= x0
+                for _, x0, x1 in spans
+                for _, other0, other1, _ in group[0]
+            )
             if not disjoint:
                 continue
-            needed = 0.6 * max(1, min(y1-y0, group[5]))
+            needed = 0.6 * max(1, min(y1 - y0, group[5]))
             if min(y1, group[4]) - max(y0, group[3]) >= needed:
                 candidates.append(group)
             elif min(y1, group[2]) - max(y0, group[1]) >= needed:
                 ambiguous = True
         if len(candidates) == 1:
             group = candidates[0]
-            group[0].extend((t, x0, x1, (index, j)) for j, (t, x0, x1) in enumerate(spans))
+            group[0].extend(
+                (t, x0, x1, (index, j)) for j, (t, x0, x1) in enumerate(spans)
+            )
             group[1], group[2] = min(y0, group[1]), max(y1, group[2])
             group[3], group[4] = max(y0, group[3]), min(y1, group[4])
-            group[5] = min(group[5], y1-y0)
+            group[5] = min(group[5], y1 - y0)
         else:
             ambiguous = ambiguous or len(candidates) > 1
-            group = [[(t, x0, x1, (index, j)) for j, (t, x0, x1) in enumerate(spans)], y0, y1, y0, y1, y1-y0]
+            group = [
+                [(t, x0, x1, (index, j)) for j, (t, x0, x1) in enumerate(spans)],
+                y0,
+                y1,
+                y0,
+                y1,
+                y1 - y0,
+            ]
             groups.append(group)
             active.append(group)
     merged, origins = [], []
@@ -514,9 +562,13 @@ def reconstruct_table_html(lines, diagnostics=None):
         row, column = map(int, record["occurrence"].split(":"))
         original_row, original_column = origins[row][column]
         text, x0, x1 = lines[original_row][0][original_column]
-        record.update(occurrence=f"{original_row}:{original_column}",
-                      bbox=[x0, lines[original_row][1], x1, lines[original_row][2]])
-    trace.get("spans", []).sort(key=lambda record: tuple(map(int, record["occurrence"].split(":"))))
+        record.update(
+            occurrence=f"{original_row}:{original_column}",
+            bbox=[x0, lines[original_row][1], x1, lines[original_row][2]],
+        )
+    trace.get("spans", []).sort(
+        key=lambda record: tuple(map(int, record["occurrence"].split(":")))
+    )
     trace["source_coverage"] = "accounted" if result else "unknown"
     if ambiguous or trace.get("ambiguous_column_intervals"):
         trace["source_coverage"] = "unresolved"
@@ -538,12 +590,27 @@ def _reconstruct_table_html(lines, diagnostics=None):
     """
     records = None
     if diagnostics is not None:
-        records = [[dict(occurrence=f"{i}:{j}", text=t, bbox=[x0, y0, x1, y1], status="unresolved", reason="no_grid")
-                    for j, (t, x0, x1) in enumerate(spans)]
-                   for i, (spans, y0, y1) in enumerate(lines)]
-        diagnostics.update(source_kind=("digital_text" if _garble_ok(lines) else "corrupt_or_empty_text"),
-                           source_check="private_use_and_replacement_glyph_fraction_first_40_lines",
-                           completeness="unknown", spans=[r for row in records for r in row])
+        records = [
+            [
+                dict(
+                    occurrence=f"{i}:{j}",
+                    text=t,
+                    bbox=[x0, y0, x1, y1],
+                    status="unresolved",
+                    reason="no_grid",
+                )
+                for j, (t, x0, x1) in enumerate(spans)
+            ]
+            for i, (spans, y0, y1) in enumerate(lines)
+        ]
+        diagnostics.update(
+            source_kind=(
+                "digital_text" if _garble_ok(lines) else "corrupt_or_empty_text"
+            ),
+            source_check="private_use_and_replacement_glyph_fraction_first_40_lines",
+            completeness="unknown",
+            spans=[r for row in records for r in row],
+        )
     if not lines or not _garble_ok(lines):
         return None
 
@@ -557,9 +624,16 @@ def _reconstruct_table_html(lines, diagnostics=None):
             alt_y = min(rich_ys)
             if any(y0 < alt_y for _, y0, _ in lines):
                 first_data_y = alt_y
-                rich = [(spans, y0) for spans, y0, _ in lines if len(spans) >= MIN_CELLS_PER_ROW]
-                if (len(rich) > 1 and all(_cell_class(t) == "text" for t, _, _ in rich[0][0])
-                        and any(_cell_class(t) == "num" for t, _, _ in rich[1][0])):
+                rich = [
+                    (spans, y0)
+                    for spans, y0, _ in lines
+                    if len(spans) >= MIN_CELLS_PER_ROW
+                ]
+                if (
+                    len(rich) > 1
+                    and all(_cell_class(t) == "text" for t, _, _ in rich[0][0])
+                    and any(_cell_class(t) == "num" for t, _, _ in rich[1][0])
+                ):
                     first_data_y = rich[1][1]
     if first_data_y is not None:
         data = [
@@ -580,12 +654,15 @@ def _reconstruct_table_html(lines, diagnostics=None):
 
     if data:
         left = median(min(x0 for _, x0, _ in spans) for spans, _ in data)
-        height = median(max(1, y1-y0) for _, y0, y1 in lines)
+        height = median(max(1, y1 - y0) for _, y0, y1 in lines)
         retained = []
         for spans, y0 in data:
-            if (retained and min(x0 for _, x0, _ in spans) > left + height / 2
-                    and y0 - retained[-1][1] <= 1.5 * height
-                    and all(_cell_class(t) == "text" for t, _, _ in spans)):
+            if (
+                retained
+                and min(x0 for _, x0, _ in spans) > left + height / 2
+                and y0 - retained[-1][1] <= 1.5 * height
+                and all(_cell_class(t) == "text" for t, _, _ in spans)
+            ):
                 continue
             retained.append((spans, y0))
         data = retained
@@ -602,44 +679,75 @@ def _reconstruct_table_html(lines, diagnostics=None):
         diagnostics.update(candidate=_name, reconstruction_score=score)
         for record in diagnostics["spans"]:
             record["reason"] = "not_assigned"
-        data_indices = [i for i, (spans, y0, _) in enumerate(lines) if (spans, y0) in data]
+        data_indices = [
+            i for i, (spans, y0, _) in enumerate(lines) if (spans, y0) in data
+        ]
         for row, (index, columns) in enumerate(zip(data_indices, placements[_name])):
             for record, column in zip(records[index], columns):
-                record.update(status="emitted", section="body", row=row, column=column, reason="grid_assignment")
+                record.update(
+                    status="emitted",
+                    section="body",
+                    row=row,
+                    column=column,
+                    reason="grid_assignment",
+                )
 
     columns = [[] for _ in range(k)]
     for (spans, _), assigned in zip(data, placements[_name]):
         for (text, x0, x1), column in zip(spans, assigned):
             columns[column].append((x0, x1))
     if diagnostics is not None and any(
-            columns[j] and columns[j+1] and max(right for _, right in columns[j]) > min(left for left, _ in columns[j+1])
-            for j in range(k-1)):
+        columns[j]
+        and columns[j + 1]
+        and max(right for _, right in columns[j])
+        > min(left for left, _ in columns[j + 1])
+        for j in range(k - 1)
+    ):
         diagnostics["ambiguous_column_intervals"] = True
     for spans, _ in band:
         for text, x0, x1 in spans:
-            column = min(sum(x0 >= cut for cut in cut_xs), k-1)
-            next_left = min((left for left, _ in columns[column+1]), default=float("inf")) if column+1 < k else float("inf")
+            column = min(sum(x0 >= cut for cut in cut_xs), k - 1)
+            next_left = (
+                min((left for left, _ in columns[column + 1]), default=float("inf"))
+                if column + 1 < k
+                else float("inf")
+            )
             if x1 <= next_left:
                 columns[column].append((x0, x1))
     attachment_cuts = []
-    for column in range(k-1):
-        if columns[column] and columns[column+1]:
+    for column in range(k - 1):
+        if columns[column] and columns[column + 1]:
             right = max(x1 for _, x1 in columns[column])
-            left = min(x0 for x0, _ in columns[column+1])
-            attachment_cuts.append((right+left)/2 if right <= left else cut_xs[column])
+            left = min(x0 for x0, _ in columns[column + 1])
+            attachment_cuts.append(
+                (right + left) / 2 if right <= left else cut_xs[column]
+            )
         else:
             attachment_cuts.append(cut_xs[column])
-    bounds = (min(x0 for spans, _, _ in lines for _, x0, _ in spans),
-              max(x1 for spans, _, _ in lines for _, _, x1 in spans))
-    intervals = [(max((right for _, right in columns[j-1]), default=bounds[0]) if j else bounds[0],
-                  min((left for left, _ in columns[j+1]), default=bounds[1]) if j+1 < k else bounds[1])
-                 for j in range(k)]
+    bounds = (
+        min(x0 for spans, _, _ in lines for _, x0, _ in spans),
+        max(x1 for spans, _, _ in lines for _, _, x1 in spans),
+    )
+    intervals = [
+        (
+            max((right for _, right in columns[j - 1]), default=bounds[0])
+            if j
+            else bounds[0],
+            min((left for left, _ in columns[j + 1]), default=bounds[1])
+            if j + 1 < k
+            else bounds[1],
+        )
+        for j in range(k)
+    ]
     if band:
         band_records = (
             [records[i] for i, (_, y0, _) in enumerate(lines) if y0 < first_data_y]
-            if records is not None else None
+            if records is not None
+            else None
         )
-        names, n_named = _stitch_band_headers(band, attachment_cuts, k, band_records, bounds, intervals)
+        names, n_named = _stitch_band_headers(
+            band, attachment_cuts, k, band_records, bounds, intervals
+        )
         has_header = True
     else:
         # No geometric header band: treat the first data row as the header
@@ -651,7 +759,15 @@ def _reconstruct_table_html(lines, diagnostics=None):
 
     if data:
         grid_y = list(zip(grid, [y0 for _, y0 in data[-len(grid) :]]))
-        _attach_wrapped_lines(lines, first_data_y if first_data_y is not None else data[0][1], grid_y, attachment_cuts, records, bounds, intervals)
+        _attach_wrapped_lines(
+            lines,
+            first_data_y if first_data_y is not None else data[0][1],
+            grid_y,
+            attachment_cuts,
+            records,
+            bounds,
+            intervals,
+        )
         grid = [g for g, _ in grid_y]
 
     if not has_header and grid:
@@ -666,6 +782,8 @@ def _reconstruct_table_html(lines, diagnostics=None):
         if len(grid) < 1:
             return None
 
-    names, grid = _merge_marker_columns(names, grid, diagnostics["spans"] if diagnostics is not None else None)
+    names, grid = _merge_marker_columns(
+        names, grid, diagnostics["spans"] if diagnostics is not None else None
+    )
 
     return _build_html(names, grid, has_header), score

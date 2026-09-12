@@ -54,23 +54,42 @@ def main():
     try:
         handle = manager.backend.start()
         if not handle.spawned_by_us:
-            raise RuntimeError("A server already exists; no owned test server was created or stopped")
+            raise RuntimeError(
+                "A server already exists; no owned test server was created or stopped"
+            )
         sentinel = _read_sentinel("vllm") or {}
         name = sentinel.get("cleanup_id")
         port = urlparse(handle.base_url).port
-        if sentinel.get("cleanup_kind") != "docker" or sentinel.get("port") != port or not name:
-            raise RuntimeError("Cannot verify owned server from its sentinel; inspect before cleanup")
+        if (
+            sentinel.get("cleanup_kind") != "docker"
+            or sentinel.get("port") != port
+            or not name
+        ):
+            raise RuntimeError(
+                "Cannot verify owned server from its sentinel; inspect before cleanup"
+            )
         inspected = docker("inspect", name)
         inspected.check_returncode()
         details = json.loads(inspected.stdout)[0]
         container_id = details["Id"]
         command = details["Config"]["Cmd"]
-        if "--revision" not in command or command[command.index("--revision") + 1] != args.model_revision:
-            raise RuntimeError("Container revision differs from requested revision; inspect before cleanup")
-        record.update(status="ready", base_url=handle.base_url, model=handle.model_name,
-                      container_id=container_id, container_name=name,
-                      image_id=details["Image"], launch_command=command,
-                      startup_seconds=time.monotonic() - started)
+        if (
+            "--revision" not in command
+            or command[command.index("--revision") + 1] != args.model_revision
+        ):
+            raise RuntimeError(
+                "Container revision differs from requested revision; inspect before cleanup"
+            )
+        record.update(
+            status="ready",
+            base_url=handle.base_url,
+            model=handle.model_name,
+            container_id=container_id,
+            container_name=name,
+            image_id=details["Image"],
+            launch_command=command,
+            startup_seconds=time.monotonic() - started,
+        )
         (args.out / "server.json").write_text(json.dumps(record, indent=2))
         print(json.dumps(record), flush=True)
         signals = queue.Queue()
@@ -85,8 +104,11 @@ def main():
         except queue.Empty:
             record["stop_reason"] = "lifetime expired"
     except Exception:
-        record.update(status="error", error=traceback.format_exc(),
-                      cleanup_verified=container_id is not None)
+        record.update(
+            status="error",
+            error=traceback.format_exc(),
+            cleanup_verified=container_id is not None,
+        )
         raise
     finally:
         if container_id:
@@ -99,7 +121,9 @@ def main():
                 (args.out / "server.log").write_text(logs.stdout + logs.stderr)
                 stopped = docker("stop", container_id)
                 record["stop_exit_code"] = stopped.returncode
-                record["status"] = "stopped" if stopped.returncode == 0 else "cleanup_failed"
+                record["status"] = (
+                    "stopped" if stopped.returncode == 0 else "cleanup_failed"
+                )
             else:
                 record["status"] = "container_already_absent"
         record["elapsed_seconds"] = time.monotonic() - started

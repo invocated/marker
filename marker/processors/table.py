@@ -92,10 +92,16 @@ class TableProcessor(BaseProcessor):
                 if block.html:
                     self.table_stats["tables_ocr"] += 1
                     if record is not None:
-                        is_ocr = block.text_extraction_method == "surya" or page.text_extraction_method == "surya"
+                        is_ocr = (
+                            block.text_extraction_method == "surya"
+                            or page.text_extraction_method == "surya"
+                        )
                         record.update(
-                            source_kind="existing_ocr_html" if is_ocr else "existing_html",
-                            completeness="unknown", reason="no_verified_reference",
+                            source_kind="existing_ocr_html"
+                            if is_ocr
+                            else "existing_html",
+                            completeness="unknown",
+                            reason="no_verified_reference",
                         )
                     continue
 
@@ -119,16 +125,31 @@ class TableProcessor(BaseProcessor):
                     record["html_sha256_after_table_processor"] = hashlib.sha256(
                         (block.html or "").encode()
                     ).hexdigest()
-                    record["output_text_extraction_method"] = block.text_extraction_method
+                    record["output_text_extraction_method"] = (
+                        block.text_extraction_method
+                    )
                     record["has_html"] = bool(block.html)
                     if block.text_extraction_method == "surya":
                         record["source_coverage"] = "unknown"
-                    if block.text_extraction_method == "surya" and record.get("source_kind") == "digital_text":
-                        source = Counter(token for span in record.get("spans", []) for token in span["text"].split())
-                        output = Counter(BeautifulSoup(block.html or "", "html.parser").get_text(" ", strip=True).split())
+                    if (
+                        block.text_extraction_method == "surya"
+                        and record.get("source_kind") == "digital_text"
+                    ):
+                        source = Counter(
+                            token
+                            for span in record.get("spans", [])
+                            for token in span["text"].split()
+                        )
+                        output = Counter(
+                            BeautifulSoup(block.html or "", "html.parser")
+                            .get_text(" ", strip=True)
+                            .split()
+                        )
                         missing = source - output
                         record["ocr_reference_omissions"] = dict(missing)
-                        record["ocr_reference_comparison"] = "case_sensitive_whitespace_tokens; typography_and_hyphenation_may_differ"
+                        record["ocr_reference_comparison"] = (
+                            "case_sensitive_whitespace_tokens; typography_and_hyphenation_may_differ"
+                        )
                         if missing:
                             record["requires_review"] = True
                             record["completeness"] = "unknown"
@@ -155,21 +176,35 @@ class TableProcessor(BaseProcessor):
             if candidate.id == block.id or candidate.id not in (page.structure or []):
                 continue
             other = list(candidate.polygon.bbox)
-            overlap = (
-                max(0, min(bbox[2], other[2]) - max(bbox[0], other[0]))
-                * max(0, min(bbox[3], other[3]) - max(bbox[1], other[1]))
+            overlap = max(0, min(bbox[2], other[2]) - max(bbox[0], other[0])) * max(
+                0, min(bbox[3], other[3]) - max(bbox[1], other[1])
             )
-            distance = max(other[0] - bbox[2], bbox[0] - other[2], 0) + max(other[1] - bbox[3], bbox[1] - other[3], 0)
-            neighbors.append(dict(
-                block_id=str(candidate.id), block_type=str(candidate.block_type),
-                bbox=other, overlap_area=overlap, distance=distance,
-                cleanup_eligible=(candidate.block_type in self.contained_block_types
-                                  and overlap / max(candidate.polygon.area, 1) > 0.95),
-            ))
+            distance = max(other[0] - bbox[2], bbox[0] - other[2], 0) + max(
+                other[1] - bbox[3], bbox[1] - other[3], 0
+            )
+            neighbors.append(
+                dict(
+                    block_id=str(candidate.id),
+                    block_type=str(candidate.block_type),
+                    bbox=other,
+                    overlap_area=overlap,
+                    distance=distance,
+                    cleanup_eligible=(
+                        candidate.block_type in self.contained_block_types
+                        and overlap / max(candidate.polygon.area, 1) > 0.95
+                    ),
+                )
+            )
         neighbors.sort(key=lambda n: (n["distance"], -n["overlap_area"]))
-        return dict(block_id=str(block.id), block_type=str(block.block_type), bbox=bbox,
-                    boundary_rule="token_center_inside_detected_bbox", semantic_ownership="unknown",
-                    neighbors=neighbors[:8], neighbors_omitted=max(0, len(neighbors) - 8))
+        return dict(
+            block_id=str(block.id),
+            block_type=str(block.block_type),
+            bbox=bbox,
+            boundary_rule="token_center_inside_detected_bbox",
+            semantic_ownership="unknown",
+            neighbors=neighbors[:8],
+            neighbors_omitted=max(0, len(neighbors) - 8),
+        )
 
     def reconstruct_digital_table(self, page, block, diagnostics=None) -> str | None:
         """Reconstruct a digital table's HTML from the cached pdftext page.
@@ -180,24 +215,49 @@ class TableProcessor(BaseProcessor):
             diagnostics["reconstruction_accepted"] = False
         if not pdftext_page:
             if diagnostics is not None:
-                diagnostics.update(source_kind="unavailable", completeness="unknown", reason="no_pdftext_page")
+                diagnostics.update(
+                    source_kind="unavailable",
+                    completeness="unknown",
+                    reason="no_pdftext_page",
+                )
             return None
-        lines = table_lines_from_pdftext(pdftext_page, block.polygon.bbox, diagnostics,
-                                         preserve_placeholders=block.block_type == BlockTypes.Table)
+        lines = table_lines_from_pdftext(
+            pdftext_page,
+            block.polygon.bbox,
+            diagnostics,
+            preserve_placeholders=block.block_type == BlockTypes.Table,
+        )
         result = reconstruct_table_html(lines, diagnostics)
         if diagnostics is not None:
             diagnostics["assignment_stage"] = "reconstruction_candidate"
         left, top, right, bottom = block.polygon.bbox
         tolerance = 0.051  # Extraction rounds coordinates to one decimal place.
-        if any(x0 < left-tolerance or x1 > right+tolerance or y0 < top-tolerance or y1 > bottom+tolerance
-               for spans, y0, y1 in lines for _, x0, x1 in spans):
+        if any(
+            x0 < left - tolerance
+            or x1 > right + tolerance
+            or y0 < top - tolerance
+            or y1 > bottom + tolerance
+            for spans, y0, y1 in lines
+            for _, x0, x1 in spans
+        ):
             if diagnostics is not None:
-                diagnostics.update(requires_review=True, source_coverage="unresolved", source_crosses_boundary=True,
-                                   boundary_evidence="token_x_and_source_line_y; line_y_may_exceed_selected_char_extent")
+                diagnostics.update(
+                    requires_review=True,
+                    source_coverage="unresolved",
+                    source_crosses_boundary=True,
+                    boundary_evidence="token_x_and_source_line_y; line_y_may_exceed_selected_char_extent",
+                )
                 for span in diagnostics.get("spans", []):
-                    if (span["bbox"][0] < left-tolerance or span["bbox"][2] > right+tolerance
-                            or span["bbox"][1] < top-tolerance or span["bbox"][3] > bottom+tolerance):
-                        span.update(status="unresolved", reason="source_crosses_detected_boundary")
+                    if (
+                        span["bbox"][0] < left - tolerance
+                        or span["bbox"][2] > right + tolerance
+                        or span["bbox"][1] < top - tolerance
+                        or span["bbox"][3] > bottom + tolerance
+                    ):
+                        span.update(
+                            status="unresolved",
+                            reason="source_crosses_detected_boundary",
+                        )
             return None
         if not result:
             return None
@@ -292,10 +352,16 @@ class TableProcessor(BaseProcessor):
             available = []
             for block in page_tables:
                 soup = BeautifulSoup(block.html or "", "html.parser")
-                tags = ["td", "th", "label", "p"] if block.block_type == BlockTypes.Form else ["td", "th"]
+                tags = (
+                    ["td", "th", "label", "p"]
+                    if block.block_type == BlockTypes.Form
+                    else ["td", "th"]
+                )
                 units = soup.find_all(tags)
                 units = [unit for unit in units if not unit.find_parent(tags)]
-                available.append([unit.get_text(" ", strip=True).split() for unit in units])
+                available.append(
+                    [unit.get_text(" ", strip=True).split() for unit in units]
+                )
             child_contained_blocks = page.contained_blocks(
                 document, self.contained_block_types
             )
@@ -312,13 +378,19 @@ class TableProcessor(BaseProcessor):
                         child.polygon.area, 1
                     )
                     source = child.raw_text(document).split()
-                    if intersection_pct <= 0.95 or child.id not in page.structure or not source:
+                    if (
+                        intersection_pct <= 0.95
+                        or child.id not in page.structure
+                        or not source
+                    ):
                         continue
                     matched = False
                     for cell in available[table_idx]:
-                        for offset in range(len(cell)-len(source)+1):
-                            if cell[offset:offset+len(source)] == source:
-                                cell[offset:offset+len(source)] = [None] * len(source)
+                        for offset in range(len(cell) - len(source) + 1):
+                            if cell[offset : offset + len(source)] == source:
+                                cell[offset : offset + len(source)] = [None] * len(
+                                    source
+                                )
                                 matched = True
                                 break
                         if matched:

@@ -45,6 +45,8 @@ The timer covers model construction and conversion after imports and source-imag
 
 ## Coverage limits
 
+The repository's pinned Ruff 0.9.10 checks required formatting of the changed files and removal of one unused import in the comparison helper. The reviewer compared Python syntax trees before and after formatting: all six product files were identical. The focused Windows suite passed 101 tests after formatting, and lint passed. The recorded conversion hashes identify the tested snapshot rather than these later formatting bytes.
+
 The frozen candidate passed 101 Linux tests across heading consistency, table diagnostics and table preservation. Those tests exercise fast/balanced settings with OCR enabled/disabled, Form and TableOfContents handling, existing OCR HTML, real table processors and four renderers with controlled inputs, boundary uncertainty and fallback preservation. Mocked recognition and supplied geometry do not validate detectors or inference quality across those combinations.
 
 An isolated archive of `f25c328` also passed the seven original fixture-independent tests in 1.56 seconds. From that archive, the command used the existing frozen interpreter:
