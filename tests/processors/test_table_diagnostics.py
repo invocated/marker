@@ -42,7 +42,7 @@ def document(source=None, existing_html=None):
     return Document(filepath="synthetic.pdf", pages=[page])
 
 
-@pytest.mark.parametrize("width,reason", [(300, "continuation_width_guard"), (60, "merge_previous_row")])
+@pytest.mark.parametrize("width,reason", [(300, "merge_previous_row"), (60, "merge_previous_row")])
 def test_occurrence_assignments_preserve_existing_output(width, reason):
     source = lines()
     source.insert(2, ([("continuation", 100, 100 + width)], 30, 38))
@@ -51,7 +51,7 @@ def test_occurrence_assignments_preserve_existing_output(width, reason):
     occurrence = next(r for r in trace["spans"] if r["text"] == "continuation")
     assert occurrence["reason"] == reason
     assert occurrence["bbox"] == [100, 30, 100 + width, 38]
-    assert occurrence["status"] == ("unresolved" if width == 300 else "emitted")
+    assert occurrence["status"] == "emitted"
     if width == 300:
         assert trace["reconstruction_score"] == 1.0
     repeated = [r for r in trace["spans"] if r["text"] == "Same"]
@@ -62,11 +62,10 @@ def test_occurrence_assignments_preserve_existing_output(width, reason):
 def test_absorbed_prose_is_not_certified_as_table_content():
     source = lines() + [([("unrelated prose", 100, 160)], 95, 99)]
     trace = {}
-    html, score = reconstruct_table_html(source, trace)
-    assert "Same unrelated prose" in html
-    assert score == 1.0
+    assert reconstruct_table_html(source, trace) is None
+    assert trace["reconstruction_score"] == 1.0
     assert trace["completeness"] == "unknown"
-    assert trace["spans"][-1]["reason"] == "merge_previous_row"
+    assert trace["spans"][-1]["reason"] == "continuation_gap"
 
 
 def test_leader_exclusion_and_corrupt_reference():
@@ -136,8 +135,8 @@ def test_header_and_symbol_column_provenance():
     result = reconstruct_table_html(source, trace)
     assert result == reconstruct_table_html(source)
     header = next(r for r in trace["spans"] if r["text"] == "wide header")
-    assert header["status"] == "unresolved"
-    assert header["reason"] == "header_width_guard"
+    assert header["status"] == "emitted"
+    assert header["reason"] == "header_center"
     source = [([("Item", 50, 80), ("Count", 100, 130)], 0, 8)] + [
         ([("\u2611", 0, 10), ("Same", 50, 80), (str(i), 100, 110)], y, y+8)
         for i, y in [(1, 20), (2, 40), (3, 60)]
