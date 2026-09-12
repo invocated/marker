@@ -29,6 +29,7 @@ RULES_HASH = "e37a99bd60de56c62cd3f4c1b7910b603641901c15ae119f849ffefa86cde120"
 TABLE_NAME = "tables/b5c5b8661b5a272e7a175cdb20d49e67ba0d_pg4.pdf"
 MULTI_HASH = "3ab9f78fb3cd0b0f869a919b1157d44ce1073c51852bff4d11068ce1769cd491"
 VENDORED_RULES_HASH = "77656afd77c387221754b4ef742d3507090489bbdc7c94a9040a328b3368a23f"
+VENDORED_RULES_LF_HASH = "eb069771c2e6f5b3820ca82b0879ecb5fbb403312b08eac9d0bbbce72a5351da"
 EXPECTED = [["Item", "Count", "Note"], ["Alpha", "12", "Blue"],
             ["Beta", "34", "Green"], ["Gamma", "56", "Amber"]]
 
@@ -94,16 +95,20 @@ def main():
     out = args.out.resolve()
     sys.path.insert(0, str(repo))
     rules = []
+    rule_path = None
     if args.case == "table":
         source = checked(args.source, TABLE_HASH)
         checked(args.rules, RULES_HASH)
+        rule_path = args.rules
         rules = [json.loads(x) for x in args.rules.read_text().splitlines()
                  if json.loads(x)["pdf"] == TABLE_NAME]
         if len(rules) != 7:
             raise ValueError("Expected seven official table rules")
     elif args.case == "multi":
         source = checked(repo / "tests/data/olmocr_bench/pdfs/multi_column_page1.pdf", MULTI_HASH)
-        rule_path = checked(repo / "tests/data/olmocr_bench/tests.jsonl", VENDORED_RULES_HASH)
+        rule_path = repo / "tests/data/olmocr_bench/tests.jsonl"
+        if digest(rule_path) not in {VENDORED_RULES_HASH, VENDORED_RULES_LF_HASH}:
+            raise ValueError("Vendored rules do not match the reviewed LF or CRLF bytes")
         rules = [json.loads(x) for x in rule_path.read_text().splitlines()
                  if json.loads(x)["pdf"] == "multi_column_page1.pdf"]
     else:
@@ -115,6 +120,7 @@ def main():
                   extract_images=True, pdftext_workers=1, use_llm=False,
                   disable_ocr=args.disable_ocr, collect_table_diagnostics=args.diagnostics)
     record = dict(case=args.case, source_sha256=source_hash, code_hashes=code,
+                  rules_sha256=digest(rule_path) if rule_path else None,
                   settings=config, python=sys.version, os=platform.platform(),
                   model_revision_requested=args.model_revision,
                   model_revision_verification="caller must retain server revision evidence",
