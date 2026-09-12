@@ -122,6 +122,8 @@ class BaseRenderer:
             "table_of_contents": document.table_of_contents,
             "page_stats": self.generate_page_stats(document, document_output),
         }
+        if document.table_diagnostics is not None:
+            metadata["table_diagnostics"] = document.table_diagnostics
         if document.debug_data_path is not None:
             metadata["debug_data_path"] = document.debug_data_path
 

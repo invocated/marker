@@ -1,4 +1,5 @@
 from collections import Counter
+import hashlib
 from typing import Annotated, List
 
 from bs4 import BeautifulSoup
@@ -54,6 +55,9 @@ class TableProcessor(BaseProcessor):
         "Whether to disable the tqdm progress bar.",
     ] = False
     disable_ocr: Annotated[bool, "Disable OCR entirely."] = False
+    collect_table_diagnostics: Annotated[
+        bool, "Collect table provenance without changing conversion decisions."
+    ] = False
 
     def __init__(
         self,
@@ -68,6 +72,8 @@ class TableProcessor(BaseProcessor):
 
     def __call__(self, document: Document):
         tables_by_page = self.collect_tables(document)
+        diagnostics = {}
+        document.table_diagnostics = [] if self.collect_table_diagnostics else None
         total = sum(len(v) for v in tables_by_page.values())
         if not total:
             return
@@ -75,13 +81,27 @@ class TableProcessor(BaseProcessor):
         ocr_fallback = []  # (page, block) digital tables the heuristics missed
         for page in document.pages:
             for block in tables_by_page.get(page.page_id, []):
+                record = None
+                if self.collect_table_diagnostics:
+                    record = self.table_boundary_evidence(page, block)
+                    diagnostics[str(block.id)] = record
+                    document.table_diagnostics.append(record)
                 # Scanned/garbled pages: the full-page OCR already produced the
                 # table HTML - trust it, don't redo.
                 if block.html:
                     self.table_stats["tables_ocr"] += 1
+                    if record is not None:
+                        is_ocr = block.text_extraction_method == "surya" or page.text_extraction_method == "surya"
+                        record.update(
+                            source_kind="existing_ocr_html" if is_ocr else "existing_html",
+                            completeness="unknown", reason="no_verified_reference",
+                        )
                     continue
 
-                html = self.reconstruct_digital_table(page, block)
+                if record is not None:
+                    html = self.reconstruct_digital_table(page, block, record)
+                else:
+                    html = self.reconstruct_digital_table(page, block)
                 if html:
                     block.structure = []
                     block.html = html
@@ -91,6 +111,16 @@ class TableProcessor(BaseProcessor):
                     ocr_fallback.append((page, block))
 
         self.run_ocr_fallback(document, ocr_fallback)
+        if self.collect_table_diagnostics:
+            for page in document.pages:
+                for block in tables_by_page.get(page.page_id, []):
+                    record = diagnostics[str(block.id)]
+                    record["html_sha256_after_table_processor"] = hashlib.sha256(
+                        (block.html or "").encode()
+                    ).hexdigest()
+                    record["output_text_extraction_method"] = block.text_extraction_method
+                    record["has_html"] = bool(block.html)
+                    record["later_processors_may_change_output"] = True
         self.cleanup_contained_blocks(document, tables_by_page)
 
         # Release the cached raw pdftext pages - they hold char-level data
@@ -106,21 +136,52 @@ class TableProcessor(BaseProcessor):
             for page in document.pages
         }
 
-    def reconstruct_digital_table(self, page, block) -> str | None:
+    def table_boundary_evidence(self, page, block):
+        bbox = list(block.polygon.bbox)
+        neighbors = []
+        for candidate in page.children or []:
+            if candidate.id == block.id or candidate.id not in (page.structure or []):
+                continue
+            other = list(candidate.polygon.bbox)
+            overlap = (
+                max(0, min(bbox[2], other[2]) - max(bbox[0], other[0]))
+                * max(0, min(bbox[3], other[3]) - max(bbox[1], other[1]))
+            )
+            distance = max(other[0] - bbox[2], bbox[0] - other[2], 0) + max(other[1] - bbox[3], bbox[1] - other[3], 0)
+            neighbors.append(dict(
+                block_id=str(candidate.id), block_type=str(candidate.block_type),
+                bbox=other, overlap_area=overlap, distance=distance,
+                cleanup_eligible=(candidate.block_type in self.contained_block_types
+                                  and overlap / max(candidate.polygon.area, 1) > 0.95),
+            ))
+        neighbors.sort(key=lambda n: (n["distance"], -n["overlap_area"]))
+        return dict(block_id=str(block.id), block_type=str(block.block_type), bbox=bbox,
+                    boundary_rule="token_center_inside_detected_bbox", semantic_ownership="unknown",
+                    neighbors=neighbors[:8], neighbors_omitted=max(0, len(neighbors) - 8))
+
+    def reconstruct_digital_table(self, page, block, diagnostics=None) -> str | None:
         """Reconstruct a digital table's HTML from the cached pdftext page.
         Returns HTML, or None if there's no text layer or the heuristics can't
         resolve a confident grid."""
         pdftext_page = page.pdftext_page
+        if diagnostics is not None:
+            diagnostics["reconstruction_accepted"] = False
         if not pdftext_page:
+            if diagnostics is not None:
+                diagnostics.update(source_kind="unavailable", completeness="unknown", reason="no_pdftext_page")
             return None
-        lines = table_lines_from_pdftext(pdftext_page, block.polygon.bbox)
-        result = reconstruct_table_html(lines)
+        lines = table_lines_from_pdftext(pdftext_page, block.polygon.bbox, diagnostics)
+        result = reconstruct_table_html(lines, diagnostics)
+        if diagnostics is not None:
+            diagnostics["assignment_stage"] = "reconstruction_candidate"
         if not result:
             return None
         html, score = result
         min_score = self.min_recon_score
         if min_score is None:
             min_score = 0.75 if self.mode == "balanced" else 0.5
+        if diagnostics is not None:
+            diagnostics["reconstruction_accepted"] = score >= min_score
         if score < min_score:
             return None
         return html

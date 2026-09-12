@@ -27,6 +27,7 @@ class Document(BaseModel):
     pages: List[PageGroup]
     block_type: BlockTypes = BlockTypes.Document
     table_of_contents: List[TocItem] | None = None
+    table_diagnostics: list[dict] | None = None
     debug_data_path: str | None = None  # Path that debug data was saved to
     _page_index: dict | None = None  # page_id -> PageGroup, built lazily
 
